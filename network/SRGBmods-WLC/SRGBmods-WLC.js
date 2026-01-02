@@ -355,6 +355,7 @@ class WLCBridge {
 		this.lastUpdate = Date.now();
 		this.firstUpdate = true;
 		this.offline = false;
+		this.channels = [];
 
 		service.log("Constructed: "+this.name);
 		this.getDeviceInfo();
@@ -410,10 +411,37 @@ class WLCBridge {
 			this.announced = true;
 
 			if(this.connected) {
-				// nothing to see here yet!
+				// Create subdevices for each channel
+				this.createSubdevices();
 			}
 
 			service.updateController(this);
+		}
+	}
+
+	createSubdevices() {
+		if(this.channels && this.channels.length > 0) {
+			service.log("Creating " + this.channels.length + " subdevices (channels)");
+			
+			for(let i = 0; i < this.channels.length; i++) {
+				const channel = this.channels[i];
+				const subdeviceId = this.mac + "_channel_" + channel.pin;
+				
+				// Check if subdevice already exists
+				let subdevice = service.getSubdevice(this.id, subdeviceId);
+				
+				if(subdevice === undefined) {
+					// Create new subdevice
+					subdevice = service.createSubdevice(this.id, subdeviceId);
+					subdevice.name = "Channel " + (channel.pin + 1) + " (Pin " + channel.pin + ")";
+					subdevice.ledCount = channel.leds;
+					subdevice.channelPin = channel.pin;
+					subdevice.channelOffset = channel.offset;
+					
+					service.log("Created subdevice: " + subdevice.name + " with " + channel.leds + " LEDs");
+					service.updateSubdevice(this.id, subdevice);
+				}
+			}
 		}
 	}
 
@@ -455,8 +483,18 @@ class WLCBridge {
 		this.firmwareversion = response.firmware;
 		this.deviceledcount = response.ledcount;
 		this.signalstrength = response.signal;
+		
+		// Store channel information if available
+		if(response.channels && response.channelinfo) {
+			this.channels = response.channelinfo;
+			service.log("Device has " + response.channels + " channels:");
+			for(let i = 0; i < this.channels.length; i++) {
+				service.log("  Channel " + (i+1) + ": Pin " + this.channels[i].pin + ", " + this.channels[i].leds + " LEDs, Offset: " + this.channels[i].offset);
+			}
+		}
+		
 		service.log("Device info for " + this.name + " with IP " + this.ip + " received:");
-		service.log("UDP Port: " + this.streamingPort + " - Arch: " + this.arch + " - Firmware: " + this.firmwareversion + " - LED count: " + this.deviceledcount + " - Signal strength: " + this.signalstrength);
+		service.log("UDP Port: " + this.streamingPort + " - Arch: " + this.arch + " - Firmware: " + this.firmwareversion + " - LED count: " + this.deviceledcount + " - Channels: " + (this.channels ? this.channels.length : 0) + " - Signal strength: " + this.signalstrength);
 
 		this.linked = service.getSetting(this.mac, "ip");
 
@@ -467,6 +505,11 @@ class WLCBridge {
 
 		if(this.forced) {
 			this.saveForceDiscovery();
+		}
+
+		// Create subdevices if connected and channels are available
+		if(this.connected && this.channels && this.channels.length > 0) {
+			this.createSubdevices();
 		}
 
 		service.updateController(this);
